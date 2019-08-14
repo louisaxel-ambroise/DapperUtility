@@ -174,21 +174,6 @@ namespace Faithlife.Utility.Dapper.Tests
 		}
 
 		[Fact]
-		public void NoParameterNameValidation()
-		{
-			var commands = BulkInsertUtility.GetBulkInsertCommands("VALUES (@a, @b, @c, @d)...", new { e = 1, f = 2 }, new[] { new { g = 3, h = 4 }, new { g = 5, h = 6 } }).ToList();
-			commands.Count.Should().Be(1);
-			commands[0].CommandText.Should().Be("VALUES (@a, @b, @c, @d),(@a, @b, @c, @d)");
-			var parameters = (SqlMapper.IParameterLookup) commands[0].Parameters;
-			parameters["e"].Should().Be(1);
-			parameters["f"].Should().Be(2);
-			parameters["g_0"].Should().Be(3);
-			parameters["h_0"].Should().Be(4);
-			parameters["g_1"].Should().Be(5);
-			parameters["h_1"].Should().Be(6);
-		}
-
-		[Fact]
 		public void ComplexValues()
 		{
 			var commands = BulkInsertUtility.GetBulkInsertCommands("VALUES (@a + (@d * @c) -\r\n\t@d)...", new { a = 1, b = 2 }, new[] { new { c = 3, d = 4 }, new { c = 5, d = 6 } }).ToList();
@@ -201,6 +186,15 @@ namespace Faithlife.Utility.Dapper.Tests
 			parameters["d_0"].Should().Be(4);
 			parameters["c_1"].Should().Be(5);
 			parameters["d_1"].Should().Be(6);
+		}
+
+		[Fact]
+		public void IgnoreAdditionalParameters()
+		{
+			var commands = BulkInsertUtility.GetBulkInsertCommands("INSERT INTO t (foo)VALUES(@foo)...;", new[] { new { foo = 1, bar = 2 } }).ToList();
+			var parameters = (DynamicParameters)commands[0].Parameters;
+			((SqlMapper.IParameterLookup)parameters)["foo_0"].Should().Be(1);
+			((SqlMapper.IParameterLookup)parameters)["bar_0"].Should().Be(null);
 		}
 	}
 }

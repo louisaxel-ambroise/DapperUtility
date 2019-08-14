@@ -96,19 +96,21 @@ namespace Faithlife.Utility.Dapper
 
 			// get common names and values
 			string[] commonNames = ParamExtractor<TCommon>.GetNames();
-			object[] commonValues = ParamExtractor<TCommon>.GetValues(commonParam);
+			IDictionary<string, object> commonValues = ParamExtractor<TCommon>.GetValues(commonParam);
 
-			// get insert names and find insert parameters in tuple
 			string[] insertNames = ParamExtractor<TInsert>.GetNames();
-			var pastEndTupleSqlIndices = s_parameterRegex.Matches(tupleSql).Cast<Match>()
-				.Where(match => insertNames.Any(name => string.Compare(match.Value, 1, name, 0, match.Value.Length, StringComparison.OrdinalIgnoreCase) == 0))
-				.Select(match => match.Index + match.Length)
-				.ToList();
+			// get insert names and find insert parameters in tuple
+			var sqlParameters = s_parameterRegex.Matches(tupleSql).Cast<Match>()
+				.Where(match => insertNames.Any(name => string.Compare(match.Value, 1, name, 0, match.Value.Length, StringComparison.OrdinalIgnoreCase) == 0));
+			var pastEndTupleSqlIndices = sqlParameters.Select(match => match.Index + match.Length).ToList();
+
+			// Only select the parameters to be inserted (= where value must be added as parameter)
+			var sqlInsertNames = sqlParameters.Select(param => param.Value.Substring(1).ToLower()).ToArray();
 
 			// calculate batch size (999 is SQLite's maximum and works well with MySql.Data)
 			const int maxParamsPerBatch = 999;
 			int actualBatchSize = batchSize ??
-				Math.Max(1, (maxParamsPerBatch - commonNames.Length) / Math.Max(1, insertNames.Length));
+				Math.Max(1, (maxParamsPerBatch - commonNames.Length) / Math.Max(1, sqlInsertNames.Length));
 
 			// insert one batch at a time
 			string batchSql = null;
@@ -151,15 +153,20 @@ namespace Faithlife.Utility.Dapper
 				// add the parameters for the batch
 				var batchParameters = new DynamicParameters();
 				for (int commonIndex = 0; commonIndex < commonNames.Length; commonIndex++)
-					batchParameters.Add(commonNames[commonIndex], commonValues[commonIndex]);
+					batchParameters.Add(commonNames[commonIndex], commonValues[commonNames[commonIndex]]);
 
 				// enumerate rows to insert
 				for (int rowIndex = 0; rowIndex < insertParamBatch.Count; rowIndex++)
 				{
 					var insertParam = insertParamBatch[rowIndex];
 					var insertValues = ParamExtractor<TInsert>.GetValues(insertParam);
-					for (int insertIndex = 0; insertIndex < insertNames.Length; insertIndex++)
-						batchParameters.Add(insertNames[insertIndex] + "_" + rowIndex.ToString(CultureInfo.InvariantCulture), insertValues[insertIndex]);
+					for (int insertIndex = 0; insertIndex < sqlInsertNames.Length; insertIndex++)
+					{
+						if (!batchParameters.ParameterNames.Contains(sqlInsertNames[insertIndex]))
+						{
+							batchParameters.Add(sqlInsertNames[insertIndex] + "_" + rowIndex.ToString(CultureInfo.InvariantCulture), insertValues[sqlInsertNames[insertIndex]]);
+						}
+					}
 				}
 
 				// return command definition
@@ -172,13 +179,13 @@ namespace Faithlife.Utility.Dapper
 		{
 			public static string[] GetNames() => s_names;
 
-			public static object[] GetValues(T param)
+			public static IDictionary<string, object> GetValues(T param)
 			{
-				var values = new object[s_getters.Length];
+				var values = new Dictionary<string, object>();
 				if (param != null)
 				{
-					for (int index = 0; index < values.Length; index++)
-						values[index] = s_getters[index](param);
+					for (int index = 0; index < s_names.Length; index++)
+						values.Add(s_names[index].ToLower(), s_getters[index](param));
 				}
 				return values;
 			}
@@ -192,7 +199,7 @@ namespace Faithlife.Utility.Dapper
 					var getter = TryCreateGetter(property);
 					if (getter != null)
 					{
-						names.Add(property.Name);
+						names.Add(property.Name.ToLower());
 						getters.Add(getter);
 					}
 				}
