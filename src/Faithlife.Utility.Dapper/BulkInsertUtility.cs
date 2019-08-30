@@ -98,19 +98,18 @@ namespace Faithlife.Utility.Dapper
 			string[] commonNames = ParamExtractor<TCommon>.GetNames();
 			IDictionary<string, object> commonValues = ParamExtractor<TCommon>.GetValues(commonParam);
 
-			string[] insertNames = ParamExtractor<TInsert>.GetNames();
 			// get insert names and find insert parameters in tuple
-			var sqlParameters = s_parameterRegex.Matches(tupleSql).Cast<Match>()
-				.Where(match => insertNames.Any(name => string.Compare(match.Value, 1, name, 0, match.Value.Length, StringComparison.OrdinalIgnoreCase) == 0));
-			var pastEndTupleSqlIndices = sqlParameters.Select(match => match.Index + match.Length).ToList();
+			IEnumerable<Match> sqlParameters = s_parameterRegex.Matches(tupleSql).Cast<Match>()
+				.Where(match => ParamExtractor<TInsert>.GetNames().Any(name => string.Compare(match.Value, 1, name, 0, match.Value.Length) == 0));
+			List<int> pastEndTupleSqlIndices = sqlParameters.Select(match => match.Index + match.Length).ToList();
 
 			// Only select the parameters to be inserted (= where value must be added as parameter)
-			var sqlInsertNames = sqlParameters.Select(param => param.Value.Substring(1).ToLower()).ToArray();
+			string[] insertNames = sqlParameters.Select(param => param.Value.Substring(1).ToLower()).ToArray();
 
 			// calculate batch size (999 is SQLite's maximum and works well with MySql.Data)
 			const int maxParamsPerBatch = 999;
 			int actualBatchSize = batchSize ??
-				Math.Max(1, (maxParamsPerBatch - commonNames.Length) / Math.Max(1, sqlInsertNames.Length));
+				Math.Max(1, (maxParamsPerBatch - commonNames.Length) / Math.Max(1, insertNames.Length));
 
 			// insert one batch at a time
 			string batchSql = null;
@@ -158,13 +157,13 @@ namespace Faithlife.Utility.Dapper
 				// enumerate rows to insert
 				for (int rowIndex = 0; rowIndex < insertParamBatch.Count; rowIndex++)
 				{
-					var insertParam = insertParamBatch[rowIndex];
-					var insertValues = ParamExtractor<TInsert>.GetValues(insertParam);
-					for (int insertIndex = 0; insertIndex < sqlInsertNames.Length; insertIndex++)
+					TInsert insertParam = insertParamBatch[rowIndex];
+					IDictionary<string, object> insertValues = ParamExtractor<TInsert>.GetValues(insertParam);
+					for (int insertIndex = 0; insertIndex < insertNames.Length; insertIndex++)
 					{
-						if (!batchParameters.ParameterNames.Contains(sqlInsertNames[insertIndex]))
+						if (!batchParameters.ParameterNames.Contains(insertNames[insertIndex]))
 						{
-							batchParameters.Add(sqlInsertNames[insertIndex] + "_" + rowIndex.ToString(CultureInfo.InvariantCulture), insertValues[sqlInsertNames[insertIndex]]);
+							batchParameters.Add(insertNames[insertIndex] + "_" + rowIndex.ToString(CultureInfo.InvariantCulture), insertValues[insertNames[insertIndex]]);
 						}
 					}
 				}
