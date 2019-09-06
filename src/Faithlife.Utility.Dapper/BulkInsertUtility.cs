@@ -40,9 +40,29 @@ namespace Faithlife.Utility.Dapper
 		/// <summary>
 		/// Efficiently inserts multiple rows, in batches as necessary.
 		/// </summary>
-		public static Task<int> BulkInsertAsync<TInsert>(this IDbConnection connection, string sql, IEnumerable<TInsert> insertParams, IDbTransaction transaction = null, int? batchSize = null, CancellationToken cancellationToken = default(CancellationToken))
+		public static Task<IEnumerable<int>> BulkInsertReturningAsync<TInsert>(this IDbConnection connection, string sql, IEnumerable<TInsert> insertParams, IDbTransaction transaction = null, int? batchSize = null, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			return connection.BulkInsertAsync(sql, (object) null, insertParams, transaction, batchSize, cancellationToken);
+			return connection.BulkInsertReturningAsync<object, TInsert>(sql, null, insertParams, transaction, batchSize, cancellationToken);
+		}
+
+		/// <summary>
+		/// Efficiently inserts multiple rows, in batches as necessary.
+		/// </summary>
+		public static async Task<IEnumerable<int>> BulkInsertReturningAsync<TCommon, TInsert>(this IDbConnection connection, string sql, TCommon commonParam, IEnumerable<TInsert> insertParams, IDbTransaction transaction = null, int? batchSize = null, CancellationToken cancellationToken = default(CancellationToken))
+		{
+			var result = new List<int>();
+			foreach (var commandDefinition in GetBulkInsertCommands(sql, commonParam, insertParams, transaction, batchSize, cancellationToken))
+				result.AddRange(await connection.QueryAsync<int>(commandDefinition).ConfigureAwait(false));
+
+			return result;
+		}
+
+		/// <summary>
+		/// Efficiently inserts multiple rows, in batches as necessary.
+		/// </summary>
+		public static async Task<int> BulkInsertAsync<TInsert>(this IDbConnection connection, string sql, IEnumerable<TInsert> insertParams, IDbTransaction transaction = null, int? batchSize = null, CancellationToken cancellationToken = default(CancellationToken))
+		{
+			return await BulkInsertAsync(connection, sql, (object)null, insertParams, transaction, batchSize, cancellationToken);
 		}
 
 		/// <summary>
